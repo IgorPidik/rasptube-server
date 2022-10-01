@@ -5,22 +5,25 @@ import (
 	"encoding/json"
 	"log"
 	"server/playback"
+	"strconv"
 
 	zmq "github.com/go-zeromq/zmq4"
 )
 
-const PLAYBACK_TOGGLE_PLAY = "PLAYBACK_TOGGLE_PLAY"
-const PLAYBACK_PLAY = "PLAYBACK_PLAY"
-const PLAYBACK_STOP = "PLAYBACK_STOP"
-const PLAYBACK_NEXT = "PLAYBACK_NEXT"
-const PLAYBACK_PREV = "PLAYBACK_PREV"
-const INIT_STATE = "INIT_STATE"
-
-const ACK = "ACK"
+const (
+	PLAYBACK_TOGGLE_PLAY = "PLAYBACK_TOGGLE_PLAY"
+	PLAYBACK_STOP        = "PLAYBACK_STOP"
+	PLAYBACK_PLAY        = "PLAYBACK_PLAY"
+	PLAYBACK_NEXT        = "PLAYBACK_NEXT"
+	PLAYBACK_PREV        = "PLAYBACK_PREV"
+	PLAY_TRACK_BY_ID     = "PLAY_TACK_BY_ID"
+	INIT_STATE           = "INIT_STATE"
+	ACK                  = "ACK"
+)
 
 type PlaybackState struct {
-	PlaylistID uint
-	TrackID    uint
+	PlaylistID uint32
+	TrackID    uint32
 	Playing    bool
 }
 
@@ -75,6 +78,10 @@ func (s *Server) Start() {
 			s.Playback.Next()
 		case PLAYBACK_PREV:
 			s.Playback.Prev()
+		case PLAY_TRACK_BY_ID:
+			if trackID, err := strconv.ParseUint(string(msg.Frames[1]), 10, 32); err == nil {
+				s.Playback.PlayTrack(uint32(trackID))
+			}
 		case INIT_STATE:
 			s.sendInitState()
 			continue

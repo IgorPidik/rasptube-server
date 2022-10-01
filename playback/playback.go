@@ -1,20 +1,23 @@
 package playback
 
-import player "server/player"
+import (
+	"errors"
+	player "server/player"
+)
 
 type Track struct {
-	ID   uint
+	ID   uint32
 	Name string
 	Url  string
 }
 
 type Playlist struct {
-	ID     uint
+	ID     uint32
 	Tracks []*Track
 }
 
 type state struct {
-	TrackIndex uint
+	TrackIndex int
 	Playing    bool
 }
 
@@ -41,7 +44,7 @@ func NewPlayback(p *Playlist) (*Playback, error) {
 }
 
 func (p *Playback) Play() error {
-	trackIndex := p.State.TrackIndex % uint(len(p.Playlist.Tracks))
+	trackIndex := p.State.TrackIndex % len(p.Playlist.Tracks)
 	if err := p.Player.Play(p.Playlist.Tracks[trackIndex].Url); err != nil {
 		return err
 	}
@@ -60,13 +63,22 @@ func (p *Playback) TogglePlay() {
 }
 
 func (p *Playback) Next() {
-	p.State.TrackIndex = (p.State.TrackIndex + 1) % uint(len(p.Playlist.Tracks))
+	p.State.TrackIndex = (p.State.TrackIndex + 1) % len(p.Playlist.Tracks)
 	p.Play()
 }
 
 func (p *Playback) Prev() {
-	p.State.TrackIndex = (p.State.TrackIndex - 1) % uint(len(p.Playlist.Tracks))
+	p.State.TrackIndex = (p.State.TrackIndex - 1) % len(p.Playlist.Tracks)
 	p.Play()
+}
+
+func (p *Playback) PlayTrack(trackID uint32) error {
+	index := FindTrackIndex(trackID, p.Playlist.Tracks)
+	if index == -1 {
+		return errors.New("invalid track id")
+	}
+	p.State.TrackIndex = index
+	return p.Play()
 }
 
 func (p *Playback) Release() {
