@@ -48,7 +48,7 @@ func (p *YoutubePlayer) Play(url string) error {
 
 	media, mediaErr := p.VLCPlayer.LoadMediaFromURL(url)
 	if mediaErr != nil {
-		return streamUrlErr
+		return mediaErr
 	}
 
 	p.CurrentMedia = media

@@ -3,6 +3,8 @@ package playback
 import (
 	"errors"
 	player "server/player"
+
+	vlc "github.com/adrg/libvlc-go/v3"
 )
 
 type Track struct {
@@ -43,6 +45,12 @@ func NewPlayback(p *Playlist) (*Playback, error) {
 	}, nil
 }
 
+func (p *Playback) EnableAutoPlay() {
+	p.Player.VLCPlayerEventManager.Attach(vlc.MediaPlayerEndReached, func(event vlc.Event, i interface{}) {
+		p.Next()
+	}, nil)
+}
+
 func (p *Playback) Play() error {
 	trackIndex := p.State.TrackIndex % len(p.Playlist.Tracks)
 	if err := p.Player.Play(p.Playlist.Tracks[trackIndex].Url); err != nil {
@@ -62,14 +70,14 @@ func (p *Playback) TogglePlay() {
 	p.Player.SetPause(!p.State.Playing)
 }
 
-func (p *Playback) Next() {
+func (p *Playback) Next() error {
 	p.State.TrackIndex = (p.State.TrackIndex + 1) % len(p.Playlist.Tracks)
-	p.Play()
+	return p.Play()
 }
 
-func (p *Playback) Prev() {
+func (p *Playback) Prev() error {
 	p.State.TrackIndex = (p.State.TrackIndex - 1) % len(p.Playlist.Tracks)
-	p.Play()
+	return p.Play()
 }
 
 func (p *Playback) PlayTrack(trackID uint32) error {
@@ -79,6 +87,12 @@ func (p *Playback) PlayTrack(trackID uint32) error {
 	}
 	p.State.TrackIndex = index
 	return p.Play()
+}
+
+func (p *Playback) AttachMediaPositionChangedCallback(callback func()) {
+	p.Player.VLCPlayerEventManager.Attach(vlc.MediaPlayerPositionChanged, func(event vlc.Event, i interface{}) {
+		callback()
+	}, nil)
 }
 
 func (p *Playback) Release() {

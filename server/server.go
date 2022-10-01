@@ -22,9 +22,11 @@ const (
 )
 
 type PlaybackState struct {
-	PlaylistID uint32
-	TrackID    uint32
-	Playing    bool
+	PlaylistID       uint32
+	TrackID          uint32
+	Playing          bool
+	TrackCurrentTime uint32
+	TrackTotalTime   uint32
 }
 
 type InitState struct {
@@ -57,6 +59,9 @@ func (s *Server) Start() {
 	if err := s.Pub.Listen("tcp://*:5563"); err != nil {
 		log.Fatalf("could not start pub: %v", err)
 	}
+
+	// s.Playback.EnableAutoPlay()
+	s.Playback.AttachMediaPositionChangedCallback(s.publishUpdatedState)
 
 	for {
 		//  Wait for next request from client
@@ -97,10 +102,16 @@ func (s *Server) Start() {
 
 func (s *Server) getPlaybackState() *PlaybackState {
 	trackIndex := s.Playback.State.TrackIndex
+	length, _ := s.Playback.Player.VLCPlayer.MediaLength()
+	position, _ := s.Playback.Player.VLCPlayer.MediaPosition()
+	currentMilliseconds := uint32(position * float32(length))
+
 	return &PlaybackState{
-		PlaylistID: s.Playback.Playlist.ID,
-		TrackID:    s.Playback.Playlist.Tracks[trackIndex].ID,
-		Playing:    s.Playback.State.Playing,
+		PlaylistID:       s.Playback.Playlist.ID,
+		TrackID:          s.Playback.Playlist.Tracks[trackIndex].ID,
+		Playing:          s.Playback.State.Playing,
+		TrackCurrentTime: currentMilliseconds,
+		TrackTotalTime:   uint32(length),
 	}
 }
 
