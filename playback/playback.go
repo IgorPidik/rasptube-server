@@ -2,9 +2,8 @@ package playback
 
 import (
 	"errors"
-	player "server/player"
-
 	vlc "github.com/adrg/libvlc-go/v3"
+	"server/player"
 )
 
 type Track struct {
@@ -55,18 +54,21 @@ func NewPlayback(p *Playlist) (*Playback, error) {
 func (p *Playback) Init() <-chan PlaybackEvent {
 	ch := make(chan PlaybackEvent)
 
-	p.Player.VLCPlayerEventManager.Attach(vlc.MediaPlayerEndReached, func(event vlc.Event, i interface{}) {
-		ch <- TrackFinished
-	}, nil)
+	go func() {
+		p.Player.VLCPlayerEventManager.Attach(vlc.MediaPlayerEndReached, func(event vlc.Event, i interface{}) {
+			ch <- TrackFinished
+		}, nil)
 
-	p.Player.VLCPlayerEventManager.Attach(vlc.MediaPlayerPositionChanged, func(event vlc.Event, i interface{}) {
-		ch <- TrackPositionChanged
-	}, nil)
+		p.Player.VLCPlayerEventManager.Attach(vlc.MediaPlayerPositionChanged, func(event vlc.Event, i interface{}) {
+			ch <- TrackPositionChanged
+		}, nil)
+	}()
 
 	return ch
 }
 
 func (p *Playback) Play() error {
+	p.Player.VLCPlayer.Stop()
 	trackIndex := p.State.TrackIndex % len(p.Playlist.Tracks)
 	if err := p.Player.Play(p.Playlist.Tracks[trackIndex].Url); err != nil {
 		return err

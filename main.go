@@ -73,7 +73,6 @@ func main() {
 				}
 			default:
 				log.Fatalf("unhandled server type: %v", e.Type)
-
 			}
 		case e := <-playbackEvents:
 			switch e {
