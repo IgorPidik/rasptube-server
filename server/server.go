@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"server/playback"
 	"strconv"
@@ -10,16 +11,42 @@ import (
 	zmq "github.com/go-zeromq/zmq4"
 )
 
+type ServerEventType string
+
 const (
-	PLAYBACK_TOGGLE_PLAY = "PLAYBACK_TOGGLE_PLAY"
-	PLAYBACK_STOP        = "PLAYBACK_STOP"
-	PLAYBACK_PLAY        = "PLAYBACK_PLAY"
-	PLAYBACK_NEXT        = "PLAYBACK_NEXT"
-	PLAYBACK_PREV        = "PLAYBACK_PREV"
-	PLAY_TRACK_BY_ID     = "PLAY_TACK_BY_ID"
-	INIT_STATE           = "INIT_STATE"
-	ACK                  = "ACK"
+	PlaybackTogglePlay ServerEventType = "PLAYBACK_TOGGLE_PLAY"
+	PlaybackStop                       = "PLAYBACK_STOP"
+	PlaybackPlay                       = "PLAYBACK_PLAY"
+	PlaybackNext                       = "PLAYBACK_NEXT"
+	PlaybackPrev                       = "PLAYBACK_PREV"
+	PlayTrackByID                      = "PLAY_TACK_BY_ID"
+	Init                               = "INIT_STATE"
+	Ack                                = "ACK"
 )
+
+func (s ServerEventType) IsValid() error {
+	switch s {
+	case PlaybackTogglePlay,
+		PlaybackStop,
+		PlaybackPlay,
+		PlaybackNext,
+		PlaybackPrev,
+		PlayTrackByID,
+		Init,
+		Ack:
+		return nil
+	}
+	return errors.New("invalid server event type")
+}
+
+type ServerEvent struct {
+	Type    ServerEventType
+	Payload interface{}
+}
+
+type PlayTrackByIDPayload struct {
+	TrackID uint32
+}
 
 type PlaybackState struct {
 	PlaylistID       uint32
@@ -29,29 +56,29 @@ type PlaybackState struct {
 	TrackTotalTime   uint32
 }
 
-type InitState struct {
+type PlaybackData struct {
 	State    *PlaybackState
 	Playlist *playback.Playlist
 }
 
 type Server struct {
-	Playback *playback.Playback
-	Rep      zmq.Socket
-	Pub      zmq.Socket
+	Rep          zmq.Socket
+	Pub          zmq.Socket
+	PlaybackData *PlaybackData
 }
 
-func NewServer(playback *playback.Playback) *Server {
+func NewServer(initState *PlaybackData) *Server {
 	rep := zmq.NewRep(context.Background())
 	pub := zmq.NewPub(context.Background())
 
 	return &Server{
-		Rep:      rep,
-		Pub:      pub,
-		Playback: playback,
+		Rep:          rep,
+		Pub:          pub,
+		PlaybackData: initState,
 	}
 }
 
-func (s *Server) Start() {
+func (s *Server) Init() <-chan ServerEvent {
 	if err := s.Rep.Listen("tcp://*:5559"); err != nil {
 		log.Fatalf("could not start rep: %v", err)
 	}
@@ -61,8 +88,13 @@ func (s *Server) Start() {
 	}
 
 	// s.Playback.EnableAutoPlay()
-	s.Playback.AttachMediaPositionChangedCallback(s.publishUpdatedState)
+	// s.Playback.AttachMediaPositionChangedCallback(s.publishUpdatedState)
+	ch := make(chan ServerEvent)
+	go s.handleRequests(ch)
+	return ch
+}
 
+func (s *Server) handleRequests(ch chan<- ServerEvent) {
 	for {
 		//  Wait for next request from client
 		msg, err := s.Rep.Recv()
@@ -71,57 +103,31 @@ func (s *Server) Start() {
 		}
 
 		log.Printf("received request: [%s]\n", msg.Frames[0])
-
-		switch string(msg.Frames[0]) {
-		case PLAYBACK_PLAY:
-			s.Playback.Play()
-		case PLAYBACK_STOP:
-			s.Playback.Pause()
-		case PLAYBACK_TOGGLE_PLAY:
-			s.Playback.TogglePlay()
-		case PLAYBACK_NEXT:
-			s.Playback.Next()
-		case PLAYBACK_PREV:
-			s.Playback.Prev()
-		case PLAY_TRACK_BY_ID:
-			if trackID, err := strconv.ParseUint(string(msg.Frames[1]), 10, 32); err == nil {
-				s.Playback.PlayTrack(uint32(trackID))
-			}
-		case INIT_STATE:
-			s.sendInitState()
-			continue
+		eventType := ServerEventType(msg.Frames[0])
+		if validErr := eventType.IsValid(); validErr != nil {
+			log.Fatal(validErr)
 		}
 
-		s.publishUpdatedState()
+		switch eventType {
+		case Init:
+			s.sendInitState()
+			continue
+		case PlayTrackByID:
+			if trackID, err := strconv.ParseUint(string(msg.Frames[1]), 10, 32); err == nil {
+				ch <- ServerEvent{Type: eventType, Payload: PlayTrackByIDPayload{TrackID: uint32(trackID)}}
+			}
+		default:
+			ch <- ServerEvent{Type: eventType}
+		}
 
-		if err := s.Rep.Send(zmq.NewMsgString(ACK)); err != nil {
+		if err := s.Rep.Send(zmq.NewMsgString(Ack)); err != nil {
 			log.Fatalf("could not send reply: %v", err)
 		}
 	}
 }
 
-func (s *Server) getPlaybackState() *PlaybackState {
-	trackIndex := s.Playback.State.TrackIndex
-	length, _ := s.Playback.Player.VLCPlayer.MediaLength()
-	position, _ := s.Playback.Player.VLCPlayer.MediaPosition()
-	currentMilliseconds := uint32(position * float32(length))
-
-	return &PlaybackState{
-		PlaylistID:       s.Playback.Playlist.ID,
-		TrackID:          s.Playback.Playlist.Tracks[trackIndex].ID,
-		Playing:          s.Playback.State.Playing,
-		TrackCurrentTime: currentMilliseconds,
-		TrackTotalTime:   uint32(length),
-	}
-}
-
 func (s *Server) sendInitState() {
-	state := &InitState{
-		State:    s.getPlaybackState(),
-		Playlist: s.Playback.Playlist,
-	}
-
-	data, err := json.Marshal(state)
+	data, err := json.Marshal(s.PlaybackData)
 	if err != nil {
 		log.Fatalf("failed to marshal init state: %v", err)
 	}
@@ -131,9 +137,8 @@ func (s *Server) sendInitState() {
 	}
 }
 
-func (s *Server) publishUpdatedState() {
-	state := s.getPlaybackState()
-	data, err := json.Marshal(state)
+func (s *Server) PublishState() {
+	data, err := json.Marshal(s.PlaybackData.State)
 	if err != nil {
 		log.Fatalf("failed to marshal state: %v", err)
 	}

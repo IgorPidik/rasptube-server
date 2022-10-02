@@ -29,6 +29,13 @@ type Playback struct {
 	State    *state
 }
 
+type PlaybackEvent uint
+
+const (
+	TrackFinished = iota
+	TrackPositionChanged
+)
+
 func NewPlayback(p *Playlist) (*Playback, error) {
 	ytPlayer, ytPlayerErr := player.NewYoutubePlayer(nil, nil)
 	if ytPlayerErr != nil {
@@ -45,10 +52,18 @@ func NewPlayback(p *Playlist) (*Playback, error) {
 	}, nil
 }
 
-func (p *Playback) EnableAutoPlay() {
+func (p *Playback) Init() <-chan PlaybackEvent {
+	ch := make(chan PlaybackEvent)
+
 	p.Player.VLCPlayerEventManager.Attach(vlc.MediaPlayerEndReached, func(event vlc.Event, i interface{}) {
-		p.Next()
+		ch <- TrackFinished
 	}, nil)
+
+	p.Player.VLCPlayerEventManager.Attach(vlc.MediaPlayerPositionChanged, func(event vlc.Event, i interface{}) {
+		ch <- TrackPositionChanged
+	}, nil)
+
+	return ch
 }
 
 func (p *Playback) Play() error {
@@ -87,12 +102,6 @@ func (p *Playback) PlayTrack(trackID uint32) error {
 	}
 	p.State.TrackIndex = index
 	return p.Play()
-}
-
-func (p *Playback) AttachMediaPositionChangedCallback(callback func()) {
-	p.Player.VLCPlayerEventManager.Attach(vlc.MediaPlayerPositionChanged, func(event vlc.Event, i interface{}) {
-		callback()
-	}, nil)
 }
 
 func (p *Playback) Release() {
