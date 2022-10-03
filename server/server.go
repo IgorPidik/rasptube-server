@@ -7,6 +7,7 @@ import (
 	"log"
 	"server/playback"
 	"strconv"
+	"sync"
 
 	zmq "github.com/go-zeromq/zmq4"
 )
@@ -64,21 +65,23 @@ type PlaybackData struct {
 type Server struct {
 	Rep          zmq.Socket
 	Pub          zmq.Socket
+	ctx          context.Context
 	PlaybackData *PlaybackData
 }
 
-func NewServer(initState *PlaybackData) *Server {
-	rep := zmq.NewRep(context.Background())
-	pub := zmq.NewPub(context.Background())
+func NewServer(ctx context.Context, initState *PlaybackData) *Server {
+	rep := zmq.NewRep(ctx)
+	pub := zmq.NewPub(ctx)
 
 	return &Server{
 		Rep:          rep,
 		Pub:          pub,
 		PlaybackData: initState,
+		ctx:          ctx,
 	}
 }
 
-func (s *Server) Init() <-chan ServerEvent {
+func (s *Server) Init(wg *sync.WaitGroup) <-chan ServerEvent {
 	if err := s.Rep.Listen("tcp://*:5559"); err != nil {
 		log.Fatalf("could not start rep: %v", err)
 	}
@@ -87,18 +90,24 @@ func (s *Server) Init() <-chan ServerEvent {
 		log.Fatalf("could not start pub: %v", err)
 	}
 
-	// s.Playback.EnableAutoPlay()
-	// s.Playback.AttachMediaPositionChangedCallback(s.publishUpdatedState)
 	ch := make(chan ServerEvent)
-	go s.handleRequests(ch)
+	go s.handleRequests(ch, wg)
 	return ch
 }
 
-func (s *Server) handleRequests(ch chan<- ServerEvent) {
+func (s *Server) handleRequests(ch chan<- ServerEvent, wg *sync.WaitGroup) {
 	for {
 		//  Wait for next request from client
 		msg, err := s.Rep.Recv()
+
 		if err != nil {
+			// stop handling requests and clean up
+			if err == context.Canceled {
+				close(ch)
+				wg.Done()
+				return
+			}
+
 			log.Fatalf("could not recv request: %v", err)
 		}
 

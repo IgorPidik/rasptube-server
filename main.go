@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
 	"log"
+	"os"
+	"os/signal"
 	"server/playback"
 	"server/server"
+	"sync"
+	"syscall"
 )
 
 func getUpdatedState(playback *playback.Playback) *server.PlaybackState {
@@ -22,6 +27,10 @@ func getUpdatedState(playback *playback.Playback) *server.PlaybackState {
 }
 
 func main() {
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
+	ctx, cancel := context.WithCancel(context.Background())
+
 	tracks := []*playback.Track{
 		{ID: 0, Name: "song 1", Url: "https://www.youtube.com/watch?v=jEUz8rKJclU"},
 		{ID: 1, Name: "song 2", Url: "https://www.youtube.com/watch?v=DZ-ei_OfRrI"},
@@ -35,7 +44,7 @@ func main() {
 		log.Fatal(playbackErr)
 	}
 	defer playbackHandler.Release()
-	playbackEvents := playbackHandler.Init()
+	playbackEvents := playbackHandler.Init(ctx, wg)
 
 	if playErr := playbackHandler.Play(); playErr != nil {
 		log.Fatal(playErr)
@@ -49,10 +58,14 @@ func main() {
 		},
 	}
 
-	s := server.NewServer(initState)
-	serverEvents := s.Init()
+	s := server.NewServer(ctx, initState)
+	serverEvents := s.Init(wg)
 	defer s.Stop()
 
+	termChan := make(chan os.Signal)
+	signal.Notify(termChan, syscall.SIGINT, syscall.SIGTERM)
+
+out:
 	for {
 		select {
 		case e := <-serverEvents:
@@ -74,14 +87,25 @@ func main() {
 			default:
 				log.Fatalf("unhandled server type: %v", e.Type)
 			}
+			// update state and publish it
+			s.PlaybackData.State = getUpdatedState(playbackHandler)
+			s.PublishState()
+
 		case e := <-playbackEvents:
 			switch e {
 			case playback.TrackFinished:
 				playbackHandler.Next()
 			}
+			// update state and publish it
+			s.PlaybackData.State = getUpdatedState(playbackHandler)
+			s.PublishState()
+		case _ = <-termChan:
+			log.Println("Shutting down...")
+			cancel()
+			break out
 		}
-		// update state and publish it
-		s.PlaybackData.State = getUpdatedState(playbackHandler)
-		s.PublishState()
 	}
+
+	wg.Wait()
+	log.Println("Exiting!")
 }

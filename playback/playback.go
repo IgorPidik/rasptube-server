@@ -1,9 +1,13 @@
 package playback
 
 import (
+	"context"
 	"errors"
-	vlc "github.com/adrg/libvlc-go/v3"
+	"log"
 	"server/player"
+	"sync"
+
+	vlc "github.com/adrg/libvlc-go/v3"
 )
 
 type Track struct {
@@ -51,17 +55,35 @@ func NewPlayback(p *Playlist) (*Playback, error) {
 	}, nil
 }
 
-func (p *Playback) Init() <-chan PlaybackEvent {
+func (p *Playback) Init(ctx context.Context, wg *sync.WaitGroup) <-chan PlaybackEvent {
 	ch := make(chan PlaybackEvent)
 
 	go func() {
-		p.Player.VLCPlayerEventManager.Attach(vlc.MediaPlayerEndReached, func(event vlc.Event, i interface{}) {
+		endEventID, endEventErr := p.Player.VLCPlayerEventManager.Attach(vlc.MediaPlayerEndReached, func(event vlc.Event, i interface{}) {
 			ch <- TrackFinished
 		}, nil)
 
-		p.Player.VLCPlayerEventManager.Attach(vlc.MediaPlayerPositionChanged, func(event vlc.Event, i interface{}) {
+		if endEventErr != nil {
+			log.Fatal(endEventErr)
+		}
+
+		posEventID, posEventErr := p.Player.VLCPlayerEventManager.Attach(vlc.MediaPlayerPositionChanged, func(event vlc.Event, i interface{}) {
 			ch <- TrackPositionChanged
 		}, nil)
+
+		if posEventErr != nil {
+			log.Fatal(posEventErr)
+		}
+
+		// wait for the clean up signal
+		<-ctx.Done()
+
+		// clean up
+		p.Player.VLCPlayerEventManager.Detach(endEventID)
+		p.Player.VLCPlayerEventManager.Detach(posEventID)
+
+		close(ch)
+		wg.Done()
 	}()
 
 	return ch
