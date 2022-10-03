@@ -32,9 +32,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	tracks := []*playback.Track{
-		{ID: 0, Name: "song 1", Url: "https://www.youtube.com/watch?v=jEUz8rKJclU"},
-		{ID: 1, Name: "song 2", Url: "https://www.youtube.com/watch?v=DZ-ei_OfRrI"},
-		{ID: 2, Name: "song 3", Url: "https://www.youtube.com/watch?v=PaaZXV1F1EQ"},
+		{ID: 0, Name: "song 1", Url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
+		{ID: 1, Name: "song 2", Url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
+		{ID: 2, Name: "song 3", Url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
 	}
 
 	playlist := &playback.Playlist{ID: 1, Tracks: tracks}
