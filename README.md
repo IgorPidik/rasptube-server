@@ -1,5 +1,6 @@
 # Rasptube server
-
+## Client
+[The client can be found here](https://github.com/IgorPidik/rasptube-client)
 ## Communication
 
 There are 2 communication channels (both facilitated by ZeroMQ):
